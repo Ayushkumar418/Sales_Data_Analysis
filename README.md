@@ -85,22 +85,32 @@ Sales_Data_Analysis/
 
 ## Run Locally
 
-1. Install dependencies:
+1. Clone the repository
+```bash
+git clone https://github.com/Ayushkumar418/Sales_Data_Analysis.git
+cd Sales_Data_Analysis
+```
+
+2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Build processed dataset + static figure artifacts:
+3. Build processed dataset + static figure artifacts:
 
 ```bash
 python -m src.pipeline
 ```
 
-3. Run dashboard:
+4. Run dashboard:
 
 ```bash
 streamlit run app.py
+```
+**Note**: If `streamlit run app.py` doesn't work on your system, try:
+```bash
+python -m streamlit run app.py
 ```
 
 ## Scheduled Reporting
