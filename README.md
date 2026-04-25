@@ -1,6 +1,6 @@
 # Sales Data Analysis Dashboard
 
-A portfolio-ready analytics project built with Python and Streamlit.
+A production-ready analytics project built with Python and Streamlit.
 It covers data cleaning, EDA, interactive BI dashboards, forecasting, anomaly alerts, and executive reporting.
 
 ## Project Overview
@@ -64,6 +64,7 @@ Sales_Data_Analysis/
 |-- analysis.ipynb
 |-- requirements.txt
 |-- README.md
+|-- TECH.md
 |-- data/
 |   |-- amazon.csv
 |   `-- retail_sales.csv
@@ -82,6 +83,25 @@ Sales_Data_Analysis/
     |-- quality.py
     `-- reporting.py
 ```
+
+## Documentation
+
+For detailed technical documentation, architecture diagrams, design patterns, and API reference, see **[TECH.md](TECH.md)**.
+
+### Key Documentation Topics:
+- **System Architecture** - High-level design and data flow
+- **Core Modules** - Detailed documentation of each component:
+  - Data Processing Pipeline
+  - Quality Assessment & Drift Monitoring
+  - Anomaly Detection Engine
+  - Multi-Model Forecasting
+  - Executive Reporting
+  - CLI Job Runner
+- **Data Schema** - Unified analytics schema definition
+- **Technology Stack** - Complete dependency list
+- **Deployment Guide** - Production deployment options
+- **Extension Points** - How to add new features
+- **Troubleshooting** - Common issues and solutions
 
 ## Run Locally
 
