@@ -1,0 +1,25 @@
+Section,Metric,Value
+Meta,Dataset,default_processed_dataset
+Meta,Rows (Filtered),"1,465"
+Meta,Date Start,2023-01-02
+Meta,Date End,2025-12-31
+KPI,Total Sales,22068210.67
+KPI,Total Profit,1351598.42
+KPI,Total Orders,1465
+KPI,Average Order Value,15063.63
+KPI,Profit Margin (%),6.12
+Forecast,Selected Model,Exponential Smoothing
+Forecast,Validation RMSE,175961.43261746215
+Forecast,Validation MAPE (%),53.695951847372726
+Forecast,Metric Source,rolling_backtest
+Alerts,Alert Count,4
+Alerts,Alert 1,Detected 2 monthly sales anomalies at z-threshold 2.0.
+Alerts,Alert 2,Found 227 transactions with profit below 0.00.
+Alerts,Alert 3,3 categories are below 5.0% profit margin.
+Alerts,Alert 4,Weakest region is 'East' with margin 6.12%.
+Forecast Next Months,2026-01,613409.63
+Forecast Next Months,2026-02,613409.63
+Forecast Next Months,2026-03,613409.63
+Forecast Next Months,2026-04,613409.63
+Forecast Next Months,2026-05,613409.63
+Forecast Next Months,2026-06,613409.63
