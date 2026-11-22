@@ -63,9 +63,31 @@ All inputs are normalized into a common analytics schema before visualization an
   - Configurable fail-fast quality gates for scheduled jobs
 
 - Executive reporting
-  - Download report as CSV and Markdown from UI
+  - Download report as CSV, Markdown and **PDF** from UI
   - Save timestamped snapshots to workspace
   - CLI job runner for scheduled report generation with strict quality/drift options
+
+## Run with Docker
+
+```bash
+docker build -t sales-data-analysis .
+docker run --rm -p 8501:8501 sales-data-analysis
+```
+
+Or with Compose (data and generated reports persist on the host):
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:8501
+
+## Deploy to Streamlit Cloud (free)
+
+1. Push this repo to GitHub.
+2. Go to [share.streamlit.io](https://share.streamlit.io), sign in with GitHub, and pick this repo.
+3. Set the main file to `app.py` and deploy. No secrets are needed for the default dataset.
+4. Paste the live URL back into the README so the project has a public demo link.
 
 ## Tech Stack
 
@@ -81,7 +103,10 @@ All inputs are normalized into a common analytics schema before visualization an
 ```text
 Sales_Data_Analysis/
 |-- app.py
-|-- analysis.ipynb
+|-- analysis.ipynb  # executed notebook: cleaning, EDA, forecasting, suggestions
+|-- Dockerfile
+|-- docker-compose.yml
+|-- .dockerignore
 |-- requirements.txt
 |-- requirements-dev.txt
 |-- LICENSE
@@ -91,7 +116,8 @@ Sales_Data_Analysis/
 |   |-- test_config.py
 |   |-- test_forecasting.py
 |   |-- test_insights.py
-|   `-- test_data_processing.py
+|   |-- test_data_processing.py
+|   `-- test_reporting.py
 |-- data/
 |   |-- amazon.csv
 |   `-- retail_sales.csv

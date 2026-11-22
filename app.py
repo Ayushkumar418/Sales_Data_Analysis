@@ -22,6 +22,7 @@ from src.quality import DriftThresholds, QualityThresholds, assess_data_drift, a
 from src.reporting import (
     build_executive_report_dataframe,
     build_executive_report_markdown,
+    build_executive_report_pdf,
     save_executive_report_bundle,
 )
 
@@ -96,6 +97,25 @@ def load_database_data(
 
     processed_df = prepare_sales_dataset(raw_df)
     return raw_df, processed_df
+
+
+@st.cache_data(show_spinner=False)
+def run_forecast(
+    filtered_df: pd.DataFrame,
+    periods: int,
+    holdout: int,
+    rolling_folds: int,
+    rolling_horizon: int,
+) -> dict:
+    """Cached forecast: benchmarking + rolling backtest is the slowest part
+    of the app, and it only needs to re-run when the filters or settings change."""
+    return forecast_sales(
+        filtered_df,
+        periods=periods,
+        holdout=holdout,
+        rolling_folds=rolling_folds,
+        rolling_horizon=rolling_horizon,
+    )
 
 
 def apply_filters(
@@ -472,7 +492,9 @@ def render_data_quality(quality_report: dict, drift_report: dict) -> None:
     if checks_df.empty:
         st.info("No quality checks available.")
     else:
-        st.dataframe(checks_df, use_container_width=True)
+        # The Value column mixes ints, floats and strings, which makes
+        # Arrow serialization warn/fail — display it as text.
+        st.dataframe(checks_df.assign(Value=lambda d: d["Value"].astype(str)), use_container_width=True)
 
     st.markdown("### Drift Table (Current Filter vs Baseline Dataset)")
     drift_df = drift_report.get("drift_table", pd.DataFrame())
@@ -699,7 +721,7 @@ def main() -> None:
         low_margin_threshold=low_margin_threshold,
         negative_profit_cutoff=negative_profit_cutoff,
     )
-    forecast_result = forecast_sales(
+    forecast_result = run_forecast(
         filtered_df,
         periods=forecast_periods,
         holdout=holdout_months,
@@ -948,6 +970,21 @@ def main() -> None:
             data=report_md.encode("utf-8"),
             file_name="executive_sales_report.md",
             mime="text/markdown",
+        )
+        report_pdf = build_executive_report_pdf(
+            dataset_label=dataset_label,
+            filtered_df=filtered_df,
+            forecast_result=forecast_result,
+            anomaly_result=anomaly_result,
+            filter_summary=filter_summary,
+            quality_report=quality_report,
+            drift_report=drift_report,
+        )
+        st.download_button(
+            label="Download Executive Report (PDF)",
+            data=report_pdf,
+            file_name="executive_sales_report.pdf",
+            mime="application/pdf",
         )
 
         st.markdown("### Save Snapshot to Workspace")

@@ -174,6 +174,144 @@ def build_executive_report_markdown(
     return "\n".join(lines)
 
 
+def build_executive_report_pdf(
+    dataset_label: str,
+    filtered_df: pd.DataFrame,
+    forecast_result: dict,
+    anomaly_result: dict,
+    filter_summary: dict,
+    quality_report: dict | None = None,
+    drift_report: dict | None = None,
+) -> bytes:
+    """Executive report as a PDF (reportlab). Same content as the Markdown
+    report, formatted for sharing/printing. Returns the PDF as bytes."""
+    from io import BytesIO
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    kpis = compute_kpis(filtered_df)
+    selected_model = forecast_result.get("selected_model", "N/A")
+    model_metrics = forecast_result.get("model_metrics", {})
+    forecast_df = forecast_result.get("forecast", pd.DataFrame(columns=["Month", "Predicted Sales"]))
+
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph("Executive Sales Report", styles["Title"]),
+        Paragraph(
+            f"Dataset: {dataset_label} &nbsp;|&nbsp; Rows: {len(filtered_df):,} &nbsp;|&nbsp; "
+            f"Date range: {filter_summary.get('start_date', '')} to {filter_summary.get('end_date', '')}",
+            styles["Normal"],
+        ),
+        Spacer(1, 12),
+        Paragraph("KPI Snapshot", styles["Heading2"]),
+    ]
+
+    def _money(value):
+        return f"{value:,.2f}" if value is not None else "N/A"
+
+    kpi_rows = [
+        ["Metric", "Value"],
+        ["Total Sales", _money(kpis["total_sales"])],
+        ["Total Profit", _money(kpis["total_profit"])],
+        ["Total Orders", f"{kpis['total_orders']:,}"],
+        ["Average Order Value", _money(kpis["avg_order_value"])],
+        ["Profit Margin (%)", _money(kpis["profit_margin"])],
+    ]
+    story.append(_styled_table(kpi_rows))
+
+    story.append(Paragraph("Forecast", styles["Heading2"]))
+    story.append(
+        Paragraph(
+            f"Selected model: {selected_model} &nbsp;|&nbsp; Validation RMSE: "
+            f"{model_metrics.get('rmse', 'N/A')} &nbsp;|&nbsp; Validation MAPE (%): "
+            f"{model_metrics.get('mape', 'N/A')} &nbsp;|&nbsp; Source: "
+            f"{model_metrics.get('metric_source', 'N/A')}",
+            styles["Normal"],
+        )
+    )
+    story.append(Spacer(1, 6))
+    if forecast_df.empty:
+        story.append(Paragraph("No forecast rows available.", styles["Normal"]))
+    else:
+        forecast_rows = [["Month", "Predicted Sales", "Lower Bound (80%)", "Upper Bound (80%)"]]
+        for _, row in forecast_df.iterrows():
+            forecast_rows.append(
+                [
+                    pd.to_datetime(row["Month"]).strftime("%Y-%m"),
+                    f"{float(row['Predicted Sales']):,.2f}",
+                    f"{float(row['Lower Bound (80%)']):,.2f}" if "Lower Bound (80%)" in row else "N/A",
+                    f"{float(row['Upper Bound (80%)']):,.2f}" if "Upper Bound (80%)" in row else "N/A",
+                ]
+            )
+        story.append(_styled_table(forecast_rows))
+
+    story.append(Paragraph("Business Suggestions", styles["Heading2"]))
+    from .insights import generate_business_suggestions
+
+    suggestions = generate_business_suggestions(filtered_df, forecast_df)
+    for suggestion in suggestions:
+        story.append(Paragraph(f"• {suggestion}", styles["Normal"]))
+
+    story.append(Paragraph("Alerts", styles["Heading2"]))
+    alerts = anomaly_result.get("alerts", [])
+    if not alerts:
+        story.append(Paragraph("No alerts generated.", styles["Normal"]))
+    else:
+        for alert in alerts:
+            story.append(Paragraph(f"• {alert}", styles["Normal"]))
+
+    if quality_report is not None:
+        story.append(Paragraph("Data Quality", styles["Heading2"]))
+        story.append(
+            Paragraph(
+                f"Quality Score: {quality_report.get('score', 'N/A')} &nbsp;|&nbsp; "
+                f"Critical Failures: {len(quality_report.get('critical_failures', []))} &nbsp;|&nbsp; "
+                f"Warning Failures: {len(quality_report.get('warning_failures', []))}",
+                styles["Normal"],
+            )
+        )
+
+    if drift_report is not None:
+        story.append(Paragraph("Data Drift", styles["Heading2"]))
+        story.append(
+            Paragraph(
+                f"Drift-Flagged Features: {drift_report.get('flagged_count', 0)}",
+                styles["Normal"],
+            )
+        )
+        for alert in drift_report.get("alerts", []):
+            story.append(Paragraph(f"• {alert}", styles["Normal"]))
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, title="Executive Sales Report")
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _styled_table(rows: list[list[str]]):
+    from reportlab.lib import colors
+    from reportlab.platypus import Table, TableStyle
+
+    table = Table(rows, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f77b4")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f2f2")]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return table
+
+
 def save_executive_report_bundle(
     report_df: pd.DataFrame,
     report_md: str,

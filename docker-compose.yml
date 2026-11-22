@@ -1,0 +1,11 @@
+# Run the dashboard with:  docker compose up --build
+# Then open http://localhost:8501
+services:
+  dashboard:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Uploaded/processed data and generated reports persist on the host.
+      - ./data:/app/data
+      - ./outputs:/app/outputs
