@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from .anomalies import detect_business_anomalies
+from .config import quote_table_name
 from .data_processing import ensure_processed_dataset, prepare_sales_dataset
 from .forecasting import forecast_sales
 from .quality import DriftThresholds, QualityThresholds, assess_data_drift, assess_data_quality
@@ -41,7 +42,9 @@ def _load_dataset(source: str, connection_url: str, table_name: str, sql_query: 
                 raw_df = pd.read_sql_query(sql_query, conn)
                 label = "database_query_result"
             else:
-                raw_df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+                raw_df = pd.read_sql_query(
+                    f"SELECT * FROM {quote_table_name(table_name)}", conn
+                )
                 label = f"database_table_{table_name}"
 
         if raw_df.empty:

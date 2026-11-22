@@ -1,4 +1,5 @@
 # Development-only dependencies (notebooks, tests). Not needed to run the app.
 -r requirements.txt
 jupyter==1.0.0
+ipython==8.26.0  # IPython 9.x breaks matplotlib 3.8.4 (missing backend2gui) when executing the notebook.
 pytest==8.3.2
