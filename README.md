@@ -27,9 +27,19 @@ All inputs are normalized into a common analytics schema before visualization an
   - Dataset Info tab (raw + processed transparency)
 
 - Forecasting (real-world evaluation)
-  - Multi-model comparison: Linear Trend, Seasonal Naive, Exponential Smoothing
+  - Multi-model comparison: Linear Trend, Seasonal Naive, Exponential Smoothing, Holt-Winters (trend + seasonality, no new dependency)
+  - 80% confidence band on forecasts — the band widens with horizon, so plan for the lower bound
+  - Missing months are interpolated, not filled with 0
   - Single holdout benchmark and rolling-origin backtest
   - Auto-selection of best model by error metrics
+  - Download forecast as CSV from the Forecast tab
+
+- Product, discount & growth insights (Product Insights tab)
+  - Month-over-month growth, best month and average month
+  - Top products by sales with share of sales and margin, and lowest-profit products
+  - Discount buckets (no discount / 0–10% / 10–20% / 20%+) with margin per bucket
+  - Category profitability table
+  - Business suggestions with real numbers — product names, ₹ amounts and forecast ranges — instead of generic templates
 
 - Alerts and actions
   - Monthly anomaly detection (z-score)
@@ -70,7 +80,9 @@ Sales_Data_Analysis/
 |-- README.md
 |-- TECH.md
 |-- tests/
-|   `-- test_config.py
+|   |-- test_config.py
+|   |-- test_forecasting.py
+|   `-- test_insights.py
 |-- data/
 |   |-- amazon.csv
 |   `-- retail_sales.csv

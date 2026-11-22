@@ -5,7 +5,12 @@ import pandas as pd
 LINEAR_MODEL = "Linear Trend"
 SEASONAL_NAIVE_MODEL = "Seasonal Naive"
 SES_MODEL = "Exponential Smoothing"
-AVAILABLE_MODELS = [LINEAR_MODEL, SEASONAL_NAIVE_MODEL, SES_MODEL]
+HOLT_WINTERS_MODEL = "Holt-Winters"
+AVAILABLE_MODELS = [LINEAR_MODEL, SEASONAL_NAIVE_MODEL, SES_MODEL, HOLT_WINTERS_MODEL]
+
+# 80% confidence interval (z = 1.28) for forecast bands.
+CONFIDENCE_LEVEL = 0.80
+CONFIDENCE_Z = 1.28
 
 
 def build_monthly_sales_series(df: pd.DataFrame) -> pd.Series:
@@ -13,9 +18,17 @@ def build_monthly_sales_series(df: pd.DataFrame) -> pd.Series:
     if monthly.empty:
         return pd.Series(dtype=float)
 
-    # Fill missing months so model training sees a continuous timeline.
+    # Keep a continuous timeline, but do NOT fill missing months with 0:
+    # a missing month in a filtered slice usually means no rows that month,
+    # not proven zero sales, and a 0 spike distorts every model. Months with
+    # no rows become NaN and are interpolated instead; months that really
+    # had rows summing to 0 stay 0.
+    counts = df.groupby(pd.Grouper(key="Order Date", freq="MS")).size()
+    monthly = monthly.copy()
+    monthly[counts == 0] = np.nan
     full_index = pd.date_range(monthly.index.min(), monthly.index.max(), freq="MS")
-    monthly = monthly.reindex(full_index, fill_value=0.0)
+    monthly = monthly.reindex(full_index)
+    monthly = monthly.interpolate(limit_direction="both")
     monthly.name = "Sales"
     return monthly
 
@@ -113,6 +126,102 @@ def _predict_ses(series: pd.Series, periods: int) -> np.ndarray:
     return np.repeat(max(level, 0.0), periods)
 
 
+def _holt_winters_run(
+    series: pd.Series, alpha: float, beta: float, gamma: float, season_length: int = 12
+) -> tuple[np.ndarray, float, float, np.ndarray]:
+    """One additive Holt-Winters pass. Returns fitted, level, trend, seasonal."""
+    values = series.to_numpy(dtype=float)
+    n = len(values)
+    use_seasonal = n >= 2 * season_length and gamma > 0
+    level = float(values[0])
+    trend = float(values[1] - values[0]) if n > 1 else 0.0
+    if use_seasonal:
+        seasonal = np.array(
+            [float(values[i] - values[:season_length].mean()) for i in range(season_length)],
+            dtype=float,
+        )
+    else:
+        seasonal = np.zeros(season_length, dtype=float)
+
+    fitted = np.zeros(n, dtype=float)
+    for i in range(n):
+        season_idx = i % season_length if use_seasonal else 0
+        seasonal_i = seasonal[season_idx] if use_seasonal else 0.0
+        fitted[i] = level + trend + seasonal_i
+        if i == n - 1:
+            break
+        prev_level = level
+        deseasonalised = values[i] - seasonal_i
+        level = alpha * deseasonalised + (1 - alpha) * (prev_level + trend)
+        trend = beta * (level - prev_level) + (1 - beta) * trend
+        if use_seasonal:
+            seasonal[season_idx] = gamma * (values[i] - level) + (1 - gamma) * seasonal_i
+    return fitted, level, trend, seasonal
+
+
+def _fit_holt_winters(
+    series: pd.Series, season_length: int = 12
+) -> tuple[np.ndarray, float, float, np.ndarray, dict]:
+    """Grid-search a small Holt-Winters parameter set by in-sample RMSE.
+
+    With fewer than 2 seasons there is no seasonal signal to learn, so
+    gamma is forced to 0 and the model falls back to Holt's linear trend.
+    """
+    if len(series) == 0:
+        return np.array([], dtype=float), 0.0, 0.0, np.zeros(season_length), {}
+    if len(series) == 1:
+        value = float(series.iloc[0])
+        return np.array([value]), value, 0.0, np.zeros(season_length), {}
+
+    alphas = (0.2, 0.5, 0.8)
+    betas = (0.0, 0.1, 0.3)
+    gammas = (0.0, 0.1, 0.3) if len(series) >= 2 * season_length else (0.0,)
+    best = None
+    for alpha in alphas:
+        for beta in betas:
+            for gamma in gammas:
+                fitted, level, trend, seasonal = _holt_winters_run(
+                    series, alpha, beta, gamma, season_length
+                )
+                rmse, _ = _safe_rmse_mape(series.to_numpy(dtype=float), fitted)
+                if best is None or rmse < best[0]:
+                    best = (rmse, fitted, level, trend, seasonal, {"alpha": alpha, "beta": beta, "gamma": gamma})
+    _, fitted, level, trend, seasonal, params = best
+    return np.clip(fitted, a_min=0, a_max=None), level, trend, seasonal, params
+
+
+def _predict_holt_winters(series: pd.Series, periods: int, season_length: int = 12) -> np.ndarray:
+    _, level, trend, seasonal, _ = _fit_holt_winters(series, season_length)
+    preds = []
+    for h in range(1, periods + 1):
+        seasonal_i = seasonal[(len(series) + h - 1) % season_length]
+        preds.append(level + h * trend + seasonal_i)
+    return np.clip(np.array(preds, dtype=float), a_min=0, a_max=None)
+
+
+def _residual_std(series: pd.Series, model_name: str) -> float:
+    """Std of one-step fitted residuals, for forecast intervals."""
+    if len(series) < 3:
+        return float(series.std()) if len(series) > 1 else 0.0
+    fitted = _fit_model(series, model_name)
+    residuals = series.to_numpy(dtype=float) - fitted
+    std = float(np.std(residuals))
+    if not np.isfinite(std) or std <= 0:
+        return float(np.std(series.to_numpy(dtype=float))) * 0.1
+    return std
+
+
+def _forecast_interval(
+    predicted: np.ndarray, residual_std: float, z: float = CONFIDENCE_Z
+) -> tuple[np.ndarray, np.ndarray]:
+    """Widening 80% band: uncertainty grows with horizon as sqrt(h)."""
+    horizons = np.arange(1, len(predicted) + 1, dtype=float)
+    half_width = z * residual_std * np.sqrt(horizons)
+    lower = np.clip(predicted - half_width, a_min=0, a_max=None)
+    upper = predicted + half_width
+    return lower, upper
+
+
 def _fit_model(series: pd.Series, model_name: str) -> np.ndarray:
     if model_name == LINEAR_MODEL:
         return _fit_linear(series)
@@ -120,6 +229,9 @@ def _fit_model(series: pd.Series, model_name: str) -> np.ndarray:
         return _fit_seasonal_naive(series)
     if model_name == SES_MODEL:
         fitted, _, _ = _fit_ses(series)
+        return fitted
+    if model_name == HOLT_WINTERS_MODEL:
+        fitted, _, _, _, _ = _fit_holt_winters(series)
         return fitted
     raise ValueError(f"Unsupported model: {model_name}")
 
@@ -131,6 +243,8 @@ def _predict_model(series: pd.Series, model_name: str, periods: int) -> np.ndarr
         return _predict_seasonal_naive(series, periods)
     if model_name == SES_MODEL:
         return _predict_ses(series, periods)
+    if model_name == HOLT_WINTERS_MODEL:
+        return _predict_holt_winters(series, periods)
     raise ValueError(f"Unsupported model: {model_name}")
 
 
@@ -317,7 +431,9 @@ def forecast_sales(
         empty = pd.DataFrame(columns=["Month", "Sales"])
         return {
             "historical": empty,
-            "forecast": pd.DataFrame(columns=["Month", "Predicted Sales"]),
+            "forecast": pd.DataFrame(
+                columns=["Month", "Predicted Sales", "Lower Bound (80%)", "Upper Bound (80%)"]
+            ),
             "model_metrics": {"rmse": None, "mape": None, "holdout_months": 0, "metric_source": "none"},
             "model_benchmark": pd.DataFrame(columns=["Model", "RMSE", "MAPE", "Holdout Months"]),
             "rolling_benchmark_summary": pd.DataFrame(columns=["Model", "RMSE", "MAPE", "Folds", "Horizon"]),
@@ -325,6 +441,8 @@ def forecast_sales(
                 columns=["Model", "Fold", "Train End", "Test Start", "Test End", "Horizon", "RMSE", "MAPE"]
             ),
             "selected_model": LINEAR_MODEL,
+            "confidence_level": CONFIDENCE_LEVEL,
+            "residual_std": 0.0,
         }
 
     benchmark_df = benchmark_models(monthly_sales, holdout=holdout)
@@ -378,7 +496,16 @@ def forecast_sales(
             "Trend Sales": fitted,  # Backward compatibility for existing dashboard labels.
         }
     )
-    forecast_df = pd.DataFrame({"Month": future_index, "Predicted Sales": predicted})
+    residual_std = _residual_std(monthly_sales, selected_model)
+    lower, upper = _forecast_interval(predicted, residual_std)
+    forecast_df = pd.DataFrame(
+        {
+            "Month": future_index,
+            "Predicted Sales": predicted,
+            "Lower Bound (80%)": lower,
+            "Upper Bound (80%)": upper,
+        }
+    )
 
     return {
         "historical": historical_df,
@@ -388,4 +515,6 @@ def forecast_sales(
         "rolling_benchmark_summary": rolling_summary_df,
         "rolling_backtest_details": rolling_details_df,
         "selected_model": selected_model,
+        "confidence_level": CONFIDENCE_LEVEL,
+        "residual_std": residual_std,
     }
