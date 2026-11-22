@@ -587,6 +587,11 @@ def main() -> None:
         df = load_data()
         dataset_label = "data/amazon.csv (processed)"
         st.sidebar.caption("Using default dataset from `data/amazon.csv`.")
+        st.warning(
+            "Demo dataset: the Amazon catalogue has no order dates, profit or regions, "
+            "so dates, regions and profit in this default dataset are simulated for illustration. "
+            "Do not treat its forecasts as real sales data — upload your own CSV with real dates and profit for real analysis."
+        )
 
     if df.empty:
         st.error("No data available. Check the dataset in data/amazon.csv.")
@@ -705,10 +710,16 @@ def main() -> None:
     kpis = compute_kpis(filtered_df)
     kpi_cols = st.columns(5)
     kpi_cols[0].metric("Total Sales", format_currency(kpis["total_sales"]))
-    kpi_cols[1].metric("Total Profit", format_currency(kpis["total_profit"]))
+    kpi_cols[1].metric(
+        "Total Profit",
+        format_currency(kpis["total_profit"]) if kpis["total_profit"] is not None else "N/A",
+    )
     kpi_cols[2].metric("Total Orders", f"{kpis['total_orders']:,}")
     kpi_cols[3].metric("Avg Order Value", format_currency(kpis["avg_order_value"]))
-    kpi_cols[4].metric("Profit Margin", f"{kpis['profit_margin']:.2f}%")
+    kpi_cols[4].metric(
+        "Profit Margin",
+        f"{kpis['profit_margin']:.2f}%" if kpis["profit_margin"] is not None else "N/A",
+    )
 
     tab_overview, tab_breakdown, tab_forecast, tab_insights, tab_alerts, tab_quality, tab_dataset, tab_report = st.tabs(
         [

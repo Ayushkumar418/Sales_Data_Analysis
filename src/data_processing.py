@@ -162,16 +162,23 @@ def normalize_sales_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     else:
         order_date = pd.Series(pd.NaT, index=df.index)
     if order_date.notna().sum() == 0:
-        # Fallback timeline enables trend charts even when date is missing.
-        order_date = pd.Series(
-            pd.Timestamp("2023-01-01") + pd.to_timedelta(df.index, unit="D"), index=df.index
+        # No fabrication: a time series cannot be built without dates.
+        # Inventing a 2023-01-01 + index timeline used to make trend charts
+        # look real while the underlying dates were entirely made up.
+        raise ValueError(
+            "No valid order dates found. Include an 'Order Date' column "
+            "with parseable dates, or the dashboard cannot build trends or forecasts."
         )
 
     if profit_col is not None:
         profit = _parse_currency(df[profit_col])
     else:
         profit = pd.Series(np.nan, index=df.index, dtype=float)
-    profit = profit.fillna((sales * 0.12).round(2))
+    # No fabrication: when profit is not supplied, it stays unknown (NaN).
+    # The old fallback filled it with 12% of sales, which made every
+    # margin, KPI and anomaly check look precise while being invented.
+    # Downstream code treats all-NaN profit as "N/A" (see compute_kpis),
+    # and the quality report flags the missing ratio.
 
     if category_col is not None:
         category = _as_text(df[category_col], default_value="Unknown")
@@ -186,16 +193,14 @@ def normalize_sales_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     if region_col is not None:
         region = _as_text(df[region_col], default_value="Unknown")
     else:
-        row_key = pd.Series(df.index, index=df.index).astype(str)
-        region = row_key.apply(lambda x: REGIONS[_stable_bucket(f"{x}-region", len(REGIONS))])
+        # No fabrication: the old code assigned a region by hashing the row
+        # index, which looked like real geography while being random.
+        region = pd.Series("Unknown", index=df.index)
 
     if segment_col is not None:
-        customer_segment = _as_text(df[segment_col], default_value="Consumer")
+        customer_segment = _as_text(df[segment_col], default_value="Unknown")
     else:
-        row_key = pd.Series(df.index, index=df.index).astype(str)
-        customer_segment = row_key.apply(
-            lambda x: CUSTOMER_SEGMENTS[_stable_bucket(f"{x}-segment", len(CUSTOMER_SEGMENTS))]
-        )
+        customer_segment = pd.Series("Unknown", index=df.index)
 
     if product_name_col is not None:
         product_name = _as_text(df[product_name_col], default_value="Unknown Product")
@@ -289,11 +294,25 @@ def prepare_sales_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
         "ratingcount",
     }.issubset(set(lookup.keys()))
     if amazon_like:
-        return clean_and_engineer_dataset(raw_df)
+        # Amazon catalogues have no dates/profit/regions: this is the
+        # explicitly-labelled synthetic demo path, not a real-data path.
+        return build_synthetic_demo_dataset(raw_df)
     return normalize_sales_dataset(raw_df)
 
 
-def clean_and_engineer_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
+def build_synthetic_demo_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Build a SYNTHETIC demo dataset from an Amazon-style catalogue.
+
+    The Amazon catalogue has no order dates, no profit, no region and no
+    order quantity — so a time-series dashboard cannot be built from it
+    directly. This function therefore *simulates* those fields (dates spread
+    over 2023–2025, regions/segments by product hash, quantity from rating
+    volume, profit from a rating/discount margin model) purely so the
+    dashboard can be demonstrated. The result is demo data, not real sales:
+    the app shows a banner saying so whenever the default dataset is used,
+    and real uploads must go through ``normalize_sales_dataset``, which
+    never fabricates values. Do not use this output for real decisions.
+    """
     df = raw_df.copy()
     df = df.drop_duplicates().reset_index(drop=True)
 
@@ -313,10 +332,11 @@ def clean_and_engineer_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     start_date = pd.Timestamp("2023-01-01")
     end_date = pd.Timestamp("2025-12-31")
     day_span = int((end_date - start_date).days)
-    # Deterministic date mapping keeps runs reproducible for portfolio demos.
+    # Simulated dates for the demo only — see the function docstring.
     day_offsets = product_key.apply(lambda x: _stable_bucket(f"{x}-date", day_span + 1))
     order_date = start_date + pd.to_timedelta(day_offsets, unit="D")
 
+    # Simulated regions/segments for the demo only — see the function docstring.
     region = product_key.apply(lambda x: REGIONS[_stable_bucket(f"{x}-region", len(REGIONS))])
     customer_segment = product_key.apply(
         lambda x: CUSTOMER_SEGMENTS[_stable_bucket(f"{x}-segment", len(CUSTOMER_SEGMENTS))]
@@ -326,11 +346,11 @@ def clean_and_engineer_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     valid_price_fallback = float(price.dropna().median()) if not price.dropna().empty else 0.0
     price = price.fillna(valid_price_fallback).clip(lower=0)
 
-    # Estimate order quantity from engagement volume (rating count proxy).
+    # Simulated order quantity from engagement volume (rating count proxy).
     quantity = np.ceil(np.log1p(rating_count.fillna(1)) / 2).astype(int).clip(lower=1, upper=8)
     sales = (price * quantity).round(2)
 
-    # Profit model combines baseline margin, rating signal, and discount pressure.
+    # Simulated profit model for the demo only — see the function docstring.
     margin = 0.10 + (rating.fillna(3.8) - 3.8) * 0.04 - discount_percentage.fillna(0) * 0.0015
     category_adjustment = category.apply(
         lambda x: (_stable_bucket(f"{x}-margin", 9) - 4) / 100
@@ -373,6 +393,11 @@ def clean_and_engineer_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
+# Backwards-compatible alias for the old name. New code should use
+# build_synthetic_demo_dataset so the demo nature is visible at the call site.
+clean_and_engineer_dataset = build_synthetic_demo_dataset
+
+
 def save_processed_dataset(df: pd.DataFrame, path: Path = PROCESSED_DATA_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
@@ -393,6 +418,6 @@ def ensure_processed_dataset(force_rebuild: bool = False) -> pd.DataFrame:
         return load_processed_dataset(PROCESSED_DATA_PATH)
 
     raw_df = load_raw_dataset(RAW_DATA_PATH)
-    cleaned_df = clean_and_engineer_dataset(raw_df)
+    cleaned_df = build_synthetic_demo_dataset(raw_df)
     save_processed_dataset(cleaned_df, PROCESSED_DATA_PATH)
     return cleaned_df

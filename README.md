@@ -5,6 +5,14 @@ It covers data cleaning, EDA, interactive BI dashboards, forecasting, anomaly al
 
 Amounts are shown in ₹ (INR) — the default dataset is Amazon India sales.
 
+**Honest data handling:** the dashboard never invents data for real uploads.
+If a CSV has no Profit column, profit is shown as **N/A**, not filled with 12% of sales.
+If it has no Region/Segment, those rows are labelled **Unknown**, not assigned a made-up region.
+If it has no valid order dates, the upload is rejected with a clear error instead of an invented timeline.
+The default `data/amazon.csv` dataset is different: the Amazon catalogue has no dates, profit or regions at all,
+so it is built by an explicitly-labelled **synthetic demo generator** (`build_synthetic_demo_dataset`) and the app
+shows a banner saying its dates, regions and profit are simulated for illustration only.
+
 ## Project Overview
 
 The project can analyze:
@@ -82,7 +90,8 @@ Sales_Data_Analysis/
 |-- tests/
 |   |-- test_config.py
 |   |-- test_forecasting.py
-|   `-- test_insights.py
+|   |-- test_insights.py
+|   `-- test_data_processing.py
 |-- data/
 |   |-- amazon.csv
 |   `-- retail_sales.csv

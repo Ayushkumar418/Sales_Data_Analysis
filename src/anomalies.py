@@ -56,7 +56,16 @@ def detect_business_anomalies(
             f"Detected {len(monthly_anomalies)} monthly sales anomalies at z-threshold {z_threshold:.1f}."
         )
 
-    negative_profit_orders = df[df["Profit"] < negative_profit_cutoff].copy()
+    # Profit may be entirely unknown (no profit column supplied) now that
+    # the 12%-of-sales fallback is gone. NaN comparisons are False, so the
+    # negative-profit check is naturally empty — but category/region margins
+    # would sum to 0 and falsely flag every category as low-margin, so
+    # margin-based checks are skipped entirely in that case.
+    profit_known = bool(df["Profit"].notna().any()) if "Profit" in df.columns else False
+    if not profit_known:
+        alerts.append("Profit is not available in this dataset — margin checks skipped.")
+
+    negative_profit_orders = df[df["Profit"] < negative_profit_cutoff].copy() if profit_known else df.iloc[0:0].copy()
     if not negative_profit_orders.empty:
         alerts.append(
             f"Found {len(negative_profit_orders)} transactions with profit below {negative_profit_cutoff:.2f}."
@@ -67,14 +76,18 @@ def detect_business_anomalies(
         .sum()
         .sort_values("Sales", ascending=False)
     )
-    category_perf["Profit Margin (%)"] = np.where(
-        category_perf["Sales"] == 0,
-        0.0,
-        (category_perf["Profit"] / category_perf["Sales"]) * 100,
-    )
-    low_margin_categories = category_perf[
-        category_perf["Profit Margin (%)"] < low_margin_threshold
-    ].copy()
+    if profit_known:
+        category_perf["Profit Margin (%)"] = np.where(
+            category_perf["Sales"] == 0,
+            0.0,
+            (category_perf["Profit"] / category_perf["Sales"]) * 100,
+        )
+        low_margin_categories = category_perf[
+            category_perf["Profit Margin (%)"] < low_margin_threshold
+        ].copy()
+    else:
+        category_perf["Profit Margin (%)"] = np.nan
+        low_margin_categories = category_perf.iloc[0:0].copy()
     if not low_margin_categories.empty:
         alerts.append(
             f"{len(low_margin_categories)} categories are below {low_margin_threshold:.1f}% profit margin."
@@ -85,12 +98,15 @@ def detect_business_anomalies(
         .sum()
         .sort_values("Profit", ascending=True)
     )
-    region_performance["Profit Margin (%)"] = np.where(
-        region_performance["Sales"] == 0,
-        0.0,
-        (region_performance["Profit"] / region_performance["Sales"]) * 100,
-    )
-    if not region_performance.empty:
+    if profit_known:
+        region_performance["Profit Margin (%)"] = np.where(
+            region_performance["Sales"] == 0,
+            0.0,
+            (region_performance["Profit"] / region_performance["Sales"]) * 100,
+        )
+    else:
+        region_performance["Profit Margin (%)"] = np.nan
+    if profit_known and not region_performance.empty:
         weakest_region = region_performance.iloc[0]
         alerts.append(
             f"Weakest region is '{weakest_region['Region']}' with margin {weakest_region['Profit Margin (%)']:.2f}%."

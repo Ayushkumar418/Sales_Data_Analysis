@@ -4,10 +4,19 @@ import pandas as pd
 
 def compute_kpis(df: pd.DataFrame) -> dict:
     total_sales = float(df["Sales"].sum())
-    total_profit = float(df["Profit"].sum())
     total_orders = int(df["Order ID"].nunique())
     avg_order_value = total_sales / total_orders if total_orders else 0.0
-    profit_margin = (total_profit / total_sales) * 100 if total_sales else 0.0
+
+    # Profit is unknown (not zero) when the dataset has no profit column
+    # values at all — e.g. after the 12%-of-sales fallback was removed.
+    # Callers must show "N/A" instead of ₹0 in that case.
+    profit_known = bool(df["Profit"].notna().any()) if "Profit" in df.columns else False
+    if profit_known:
+        total_profit = float(df["Profit"].sum())
+        profit_margin = (total_profit / total_sales) * 100 if total_sales else 0.0
+    else:
+        total_profit = None
+        profit_margin = None
 
     return {
         "total_sales": total_sales,
@@ -15,6 +24,7 @@ def compute_kpis(df: pd.DataFrame) -> dict:
         "total_orders": total_orders,
         "avg_order_value": avg_order_value,
         "profit_margin": profit_margin,
+        "profit_known": profit_known,
     }
 
 
@@ -163,15 +173,27 @@ def generate_business_suggestions(df: pd.DataFrame, forecast_df: pd.DataFrame) -
     growth = compute_monthly_growth(df)
     products = compute_product_insights(df)
     discount = compute_discount_insights(df)
+    profit_known = bool(df["Profit"].notna().any()) if "Profit" in df.columns else False
+
+    if not profit_known:
+        suggestions.append(
+            "Profit is not available in this dataset (no profit column was supplied), "
+            "so margin-based suggestions are skipped — the dashboard shows profit as N/A, not ₹0."
+        )
 
     if not products["top_products"].empty:
         top = products["top_products"].iloc[0]
+        margin_text = (
+            f" at {float(top['Profit Margin (%)']):.1f}% margin"
+            if profit_known
+            else " (profit unknown for this dataset)"
+        )
         suggestions.append(
             f"Protect stock for '{top['Product Name']}': ₹{float(top['Sales']):,.0f} sales "
-            f"({float(top['Share of Sales (%)']):.1f}% of total) at {float(top['Profit Margin (%)']):.1f}% margin. "
+            f"({float(top['Share of Sales (%)']):.1f}% of total){margin_text}. "
             f"Top 5 products together are {products['top_share_pct']:.1f}% of sales."
         )
-    if not products["worst_profit_products"].empty:
+    if profit_known and not products["worst_profit_products"].empty:
         worst = products["worst_profit_products"].iloc[0]
         if float(worst["Profit"]) < 0:
             suggestions.append(
@@ -179,7 +201,7 @@ def generate_business_suggestions(df: pd.DataFrame, forecast_df: pd.DataFrame) -
                 f"across {int(worst['Orders'])} orders — review its price or discount, or delist it."
             )
 
-    if discount["high_discount_margin_pct"] is not None:
+    if profit_known and discount["high_discount_margin_pct"] is not None:
         suggestions.append(
             f"Orders with 20%+ discount made ₹{discount['high_discount_sales']:,.0f} sales "
             f"but only {discount['high_discount_margin_pct']:.1f}% margin "
