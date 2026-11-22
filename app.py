@@ -10,7 +10,14 @@ from src.anomalies import detect_business_anomalies
 from src.config import CURRENCY_SYMBOL, DEFAULT_FORECAST_PERIODS, quote_table_name
 from src.data_processing import ensure_processed_dataset, prepare_sales_dataset
 from src.forecasting import forecast_sales
-from src.insights import compute_kpis, generate_business_suggestions
+from src.insights import (
+    compute_category_profitability,
+    compute_discount_insights,
+    compute_kpis,
+    compute_monthly_growth,
+    compute_product_insights,
+    generate_business_suggestions,
+)
 from src.quality import DriftThresholds, QualityThresholds, assess_data_drift, assess_data_quality
 from src.reporting import (
     build_executive_report_dataframe,
@@ -244,6 +251,28 @@ def render_forecast_chart(historical_df: pd.DataFrame, forecast_df: pd.DataFrame
         )
 
     if not forecast_df.empty:
+        if "Lower Bound (80%)" in forecast_df.columns and "Upper Bound (80%)" in forecast_df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=forecast_df["Month"],
+                    y=forecast_df["Upper Bound (80%)"],
+                    mode="lines",
+                    name="Upper Bound (80%)",
+                    line=dict(color="#2ca02c", width=0),
+                    showlegend=False,
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=forecast_df["Month"],
+                    y=forecast_df["Lower Bound (80%)"],
+                    mode="lines",
+                    name="80% Confidence Band",
+                    line=dict(color="#2ca02c", width=0),
+                    fill="tonexty",
+                    fillcolor="rgba(44, 160, 44, 0.15)",
+                )
+            )
         fig.add_trace(
             go.Scatter(
                 x=forecast_df["Month"],
@@ -681,11 +710,12 @@ def main() -> None:
     kpi_cols[3].metric("Avg Order Value", format_currency(kpis["avg_order_value"]))
     kpi_cols[4].metric("Profit Margin", f"{kpis['profit_margin']:.2f}%")
 
-    tab_overview, tab_breakdown, tab_forecast, tab_alerts, tab_quality, tab_dataset, tab_report = st.tabs(
+    tab_overview, tab_breakdown, tab_forecast, tab_insights, tab_alerts, tab_quality, tab_dataset, tab_report = st.tabs(
         [
             "Overview",
             "Category & Region Analysis",
             "Forecast & Suggestions",
+            "Product Insights",
             "Alerts & Actions",
             "Data Quality",
             "Dataset Info",
@@ -735,12 +765,24 @@ def main() -> None:
         st.plotly_chart(forecast_fig, use_container_width=True, config={"displaylogo": False})
 
         st.markdown("**Predicted Sales (Next Months)**")
-        st.dataframe(
-            forecast_df.assign(
-                Month=lambda d: d["Month"].dt.strftime("%Y-%m"),
-                **{"Predicted Sales": lambda d: d["Predicted Sales"].round(2)},
-            ),
-            use_container_width=True,
+        st.caption("The 80% band widens with horizon — plan for the lower bound, not just the point forecast.")
+        forecast_display = forecast_df.assign(
+            Month=lambda d: d["Month"].dt.strftime("%Y-%m"),
+            **{"Predicted Sales": lambda d: d["Predicted Sales"].round(2)},
+        )
+        if "Lower Bound (80%)" in forecast_df.columns:
+            forecast_display = forecast_display.assign(
+                **{
+                    "Lower Bound (80%)": lambda d: d["Lower Bound (80%)"].round(2),
+                    "Upper Bound (80%)": lambda d: d["Upper Bound (80%)"].round(2),
+                }
+            )
+        st.dataframe(forecast_display, use_container_width=True)
+        st.download_button(
+            label="Download Forecast (CSV)",
+            data=forecast_df.to_csv(index=False).encode("utf-8"),
+            file_name="sales_forecast.csv",
+            mime="text/csv",
         )
 
         if metrics["rmse"] is not None and metrics["mape"] is not None:
@@ -800,6 +842,54 @@ def main() -> None:
         st.markdown("### Business Suggestions")
         for suggestion in generate_business_suggestions(filtered_df, forecast_df):
             st.write(f"- {suggestion}")
+
+    with tab_insights:
+        st.subheader("Product, Discount & Growth Insights")
+        growth = compute_monthly_growth(filtered_df)
+        product_insights = compute_product_insights(filtered_df)
+        discount_insights = compute_discount_insights(filtered_df)
+        category_profit = compute_category_profitability(filtered_df)
+
+        if growth["latest_month"] is not None:
+            col1, col2, col3 = st.columns(3)
+            col1.metric(
+                "Latest Month",
+                growth["latest_month"].strftime("%Y-%m"),
+                format_currency(growth["latest_sales"]),
+            )
+            col2.metric(
+                "Month-over-Month",
+                f"{growth['mom_change_pct']:.1f}%" if growth["mom_change_pct"] is not None else "N/A",
+            )
+            col3.metric("Average Month", format_currency(growth["avg_monthly_sales"]))
+            st.caption(
+                f"Best month: {growth['best_month'].strftime('%Y-%m')} "
+                f"({format_currency(growth['best_sales'])}) across {growth['months']} months."
+            )
+
+        st.markdown("### Top Products by Sales")
+        if product_insights["top_products"].empty:
+            st.info("No product data in the current filters.")
+        else:
+            st.dataframe(product_insights["top_products"], use_container_width=True)
+            st.caption(
+                f"Top 5 products are {product_insights['top_share_pct']:.1f}% of sales "
+                f"across {product_insights['product_count']} products."
+            )
+
+        st.markdown("### Lowest-Profit Products")
+        st.dataframe(product_insights["worst_profit_products"], use_container_width=True)
+
+        st.markdown("### Discount vs Profit")
+        st.dataframe(discount_insights["buckets"], use_container_width=True)
+        if discount_insights["high_discount_margin_pct"] is not None:
+            st.caption(
+                f"20%+ discount orders: {format_currency(discount_insights['high_discount_sales'])} sales "
+                f"at {discount_insights['high_discount_margin_pct']:.1f}% margin."
+            )
+
+        st.markdown("### Category Profitability")
+        st.dataframe(category_profit, use_container_width=True)
 
     with tab_alerts:
         render_alerts_and_actions(anomaly_result)
