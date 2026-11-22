@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.anomalies import detect_business_anomalies
-from src.config import DEFAULT_FORECAST_PERIODS
+from src.config import CURRENCY_SYMBOL, DEFAULT_FORECAST_PERIODS, quote_table_name
 from src.data_processing import ensure_processed_dataset, prepare_sales_dataset
 from src.forecasting import forecast_sales
 from src.insights import compute_kpis, generate_business_suggestions
@@ -77,9 +77,12 @@ def load_database_data(
     engine = create_engine(connection_url)
     with engine.connect() as conn:
         if sql_query.strip():
+            # Custom SQL runs as typed by the user, for trusted queries only.
             raw_df = pd.read_sql_query(sql_query, conn)
         else:
-            raw_df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+            # Table names are validated + quoted in src/config.py, so a
+            # typed name can never inject extra SQL here.
+            raw_df = pd.read_sql_query(f"SELECT * FROM {quote_table_name(table_name)}", conn)
 
     if raw_df.empty:
         raise ValueError("Database query returned no rows.")
@@ -107,7 +110,7 @@ def apply_filters(
 
 
 def format_currency(value: float) -> str:
-    return f"${value:,.2f}"
+    return f"{CURRENCY_SYMBOL}{value:,.2f}"
 
 
 def create_monthly_trend_figure(df: pd.DataFrame) -> go.Figure:

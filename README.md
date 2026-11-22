@@ -3,6 +3,8 @@
 A production-ready analytics project built with Python and Streamlit.
 It covers data cleaning, EDA, interactive BI dashboards, forecasting, anomaly alerts, and executive reporting.
 
+Amounts are shown in ₹ (INR) — the default dataset is Amazon India sales.
+
 ## Project Overview
 
 The project can analyze:
@@ -63,12 +65,17 @@ Sales_Data_Analysis/
 |-- app.py
 |-- analysis.ipynb
 |-- requirements.txt
+|-- requirements-dev.txt
+|-- LICENSE
 |-- README.md
 |-- TECH.md
+|-- .github/workflows/ci.yml
+|-- tests/
+|   `-- test_config.py
 |-- data/
 |   |-- amazon.csv
 |   `-- retail_sales.csv
-|-- outputs/
+|-- outputs/  # generated, git-ignored; rebuilt by src.pipeline / src.jobs
 |   |-- figures/
 |   `-- reports/
 `-- src/
@@ -83,6 +90,9 @@ Sales_Data_Analysis/
     |-- quality.py
     `-- reporting.py
 ```
+
+The default dataset lives only in `data/amazon.csv`. Generated files under
+`outputs/` are not committed.
 
 ## Documentation
 
@@ -115,6 +125,18 @@ cd Sales_Data_Analysis
 
 ```bash
 pip install -r requirements.txt
+```
+
+For notebooks and tests, install the dev dependencies instead:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Run tests:
+
+```bash
+python -m pytest -q
 ```
 
 3. Build processed dataset + static figure artifacts:

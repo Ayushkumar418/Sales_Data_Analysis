@@ -1,0 +1,4 @@
+# Development-only dependencies (notebooks, tests). Not needed to run the app.
+-r requirements.txt
+jupyter==1.0.0
+pytest==8.3.2

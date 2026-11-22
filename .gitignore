@@ -5,3 +5,14 @@ __pycache__/
 *.pyd
 .ipynb_checkpoints/
 
+# Generated outputs are rebuilt by `python -m src.pipeline` / `python -m src.jobs`.
+# Do not commit them; existing tracked files under outputs/ are left in
+# history by this PR and can be removed with `git rm -r --cached outputs/`.
+outputs/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+*.log
+.streamlit/secrets.toml
