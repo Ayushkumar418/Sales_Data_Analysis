@@ -69,7 +69,6 @@ Sales_Data_Analysis/
 |-- LICENSE
 |-- README.md
 |-- TECH.md
-|-- .github/workflows/ci.yml
 |-- tests/
 |   `-- test_config.py
 |-- data/
