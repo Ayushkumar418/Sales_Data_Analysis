@@ -119,6 +119,19 @@ def assess_data_quality(
             }
         )
 
+    if "Region" in df.columns and total_rows > 0:
+        unknown_region_ratio = _safe_pct((df["Region"] == "Unknown").sum(), total_rows)
+        checks.append(
+            {
+                "Check": "Unknown Region Ratio",
+                "Status": "PASS" if unknown_region_ratio <= thresholds.max_missing_pct else "FAIL",
+                "Severity": "warning",
+                "Value": round(unknown_region_ratio * 100, 2),
+                "Threshold": f"<= {round(thresholds.max_missing_pct * 100, 2)}%",
+                "Message": "Rows with no region are labelled 'Unknown' instead of being assigned a made-up region.",
+            }
+        )
+
     if "Order Date" in df.columns and total_rows > 0:
         invalid_date_ratio = _safe_pct(pd.to_datetime(df["Order Date"], errors="coerce").isna().sum(), total_rows)
         checks.append(
